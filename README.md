@@ -10,7 +10,7 @@
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white)
 ![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-on--device-005CED?logo=onnx&logoColor=white)
-![Version](https://img.shields.io/badge/version-2.1.3-blue)
+![Version](https://img.shields.io/badge/version-2.1.4-blue)
 ![APK](https://img.shields.io/badge/APK-16MB-orange)
 
 [**⬇️ APK 내려받기**](release/KoreanVoice-lite.apk) · [주요 기능](#-주요-기능) · [구조](#%EF%B8%8F-구조) · [엔지니어링](#-엔지니어링-하이라이트) · [검증 결과](#-검증-결과) · [English](#english-summary)
@@ -67,7 +67,7 @@ flowchart LR
 ```
 
 - **추론**: ONNX Runtime(Android, CPU). T3 언어 모델은 4비트(MatMulNBits)로 압축했고, 분류기 없는 가이던스(CFG)·KV 캐시·정렬 감시기는 Kotlin으로 직접 구현했습니다.
-- **모델 배포**: APK에는 16MB만 담고, 모델(약 1.1GB)은 처음 실행할 때 48MB 이하 조각으로 받아 **SHA-256으로 하나하나 검증**합니다. 끊겨도 조각 단위로 이어 받습니다.
+- **모델 배포**: APK에는 16MB만 담고, 모델(약 1.2GB)은 처음 실행할 때 이 저장소의 [`modelpack` 브랜치](https://github.com/heok0308hth-glitch/Korean_voice/tree/modelpack)에서 40MB 이하 조각으로 받아 **SHA-256으로 검증**합니다. 끊기면 조각 단위로 이어 받고, GitHub 원본 → jsDelivr CDN → GitHub 미러 순서로 되는 곳에서 받습니다.
 - **앱**: Kotlin · Jetpack Compose · 포그라운드 서비스(화면이 꺼져도 생성·학습이 계속되고, 알림으로 진행률을 보여 줌).
 
 ## 🔧 엔지니어링 하이라이트
@@ -96,22 +96,40 @@ flowchart LR
 - 모바일 키보드가 화면을 가리던 문제: 화면을 키보드 위 공간으로 줄이고, 태그 줄을 키보드 바로 위에 붙이고, 빈 곳을 누르면 키보드가 내려가게 했습니다.
 - 비정상 종료 시 다음 실행에서 원인(오류 내용·메모리 부족·당시 하던 작업)을 보여 주고 복사할 수 있게 했습니다. 위 3번의 크래시도 사용자가 이 화면의 내용을 보내 줘서 보고받은 날 고쳤습니다.
 
+**7. 소스와 모델을 잃은 뒤, APK 하나로 복구 (v2.1.4)**
+- 소스 코드와 모델 파일이 있던 저장소가 삭제되어, 새로 설치한 사람은 모델을 받을 수 없는 상태가 됐습니다. 남은 것은 배포된 APK뿐이었습니다.
+- **APK를 디컴파일해 앱과 모델 사이의 계약을 복원**했습니다: 각 ONNX 모델의 입력·출력 이름과 모양, 임베딩 표의 바이너리 형식, 정렬 감시기가 기대하는 어텐션 헤드, 모델 주소를 읽는 방식(`|`로 구분한 기본 주소 + 조각 이름).
+- 그 계약에 맞춰 Hugging Face의 **원본 가중치에서 모델 13개를 다시 내보내고**, 하나하나 PyTorch 원본과 숫자로 비교했습니다(아래 표).
+- **APK 안의 엔진 코드를 그대로 PC JVM에서 실행**해(dex2jar) 새 모델로 목소리 학습 → 자동 학습 → 태그 대본 → MP3까지 끝까지 확인했습니다. 이 과정에서 dex2jar가 R8의 인라인된 생성자를 잘못 옮기는 버그를 찾아 테스트용 사본에서만 우회했습니다.
+- 앱 코드는 모델 주소 한 줄만 바이트코드(smali)에서 바꿨고, 모델팩을 새로 올린 뒤 새 키로 서명했습니다. 모델을 다시 만든 스크립트는 [`modelpack` 브랜치의 tools/](https://github.com/heok0308hth-glitch/Korean_voice/tree/modelpack/tools)에 있습니다.
+
 ## 📊 검증 결과
 
 모든 수치는 직접 측정한 값입니다(PC JVM + ONNX Runtime 1.31).
 
-**원본 Python 구현과의 일치도**
+**v2.1.4 모델팩: PyTorch 원본과의 일치도** (모델별 내보내기 직후 측정)
 
 | 항목 | 결과 |
 |---|---|
-| 텍스트 토크나이저 | 3,029개 중 불일치 0 |
-| 참조 음성 토큰 | 250 / 250 일치 |
-| 화자 임베딩(VoiceEncoder) | 코사인 0.99999999 |
-| x-vector(CAM++) | 코사인 0.9966 |
-| 멜 스펙트로그램 | 코사인 0.99999 |
-| 언어 모델 생성 토큰(4비트 압축 후) | 98% 일치 |
+| 텍스트 토크나이저 | 원본 파일과 SHA-256 동일 |
+| 음성 토큰(S3 토크나이저) | 186 / 186 일치, 가중치 fp16 저장 후에도 동일 |
+| x-vector(CAM++) | 코사인 1.0000 (fp16 저장 후 0.999999) |
+| 화자 임베딩(VoiceEncoder 멜 + LSTM) | 상대 오차 3.5e-7 / 완전 일치 |
+| S3Gen 멜 스펙트로그램 | 최대 오차 2e-4 (로그 단위) |
+| 언어 모델 T3 (KV 캐시 래퍼) | 로짓 최대 오차 7.6e-6 (처음 입력·캐시 단계 모두) |
+| ECAPA 심사 모델 | 코사인 0.9999999 |
 
-**자동 학습** (표준 5세대, 학습에 안 쓴 문장 6개, 같은 난수)
+**v2.1.4 합성 품질** (APK 안의 엔진 코드를 PC에서 그대로 실행, 실제 한국어 화자 음성 [zeroth-korean]으로 목소리 학습, Whisper large-v3-turbo로 받아쓰기)
+
+| 항목 | 결과 |
+|---|---|
+| 글자 오류율(CER), 빠른 디코더 | **1.1%** (화자 5명 × 문장 4개, 오류 대부분은 "세 시"를 "3시"로 적는 숫자 표기 차이) |
+| 글자 오류율, 고품질 디코더 | 0.9% (문장 4개) |
+| 앱 전체 흐름 (파일 3개로 학습 → 태그 대본 5조각 → MP3) | CER 0%, `{NASA\|나사}` 같은 읽는 법 지정도 반영 |
+| 자동 학습 (1세대 · 후보 6개 축소 실행) | 정상 동작. 학습에 안 쓴 문장 기준 0.706 → 0.711로 채택 기준 미달이라 원래 설정 유지 |
+| 화자 유사도(ECAPA, 원본 음성 대비) | 빠른 디코더 **0.722** vs PyTorch 원본 0.755 (같은 화자 2명 × 문장 4개). 빠른 디코더는 증류된 Turbo 모델이라 약간 낮음. 고품질 디코더는 화자 1명 기준 0.755 (원본 0.787) |
+
+**자동 학습** (v2.1, 이전 모델팩, 표준 5세대, 학습에 안 쓴 문장 6개, 같은 난수)
 
 | 항목 | 결과 |
 |---|---|
@@ -130,12 +148,12 @@ flowchart LR
 
 ## 📥 설치
 
-> **현재 상태:** 모델 배포 저장소를 정리하는 중이라, 지금 새로 설치하면 첫 실행 때 모델을 내려받지 못합니다.
-> 모델 다운로드가 다시 열리면 이 안내를 지우겠습니다. 이미 모델을 받은 기기는 그대로 동작합니다.
-
 1. [`release/KoreanVoice-lite.apk`](release/KoreanVoice-lite.apk)를 내려받아 설치합니다. 스토어 밖 앱이라 "출처를 알 수 없는 앱 설치"를 허용해야 합니다.
-2. 처음 실행하면 모델(약 1.1GB)을 한 번 내려받습니다. **Wi-Fi를 권장합니다.**
+2. 처음 실행하면 모델(약 1.1GB, 고품질 디코더는 선택)을 한 번 내려받습니다. **Wi-Fi를 권장합니다.**
 3. 그다음부터는 비행기 모드에서도 동작합니다.
+
+> **2.1.3 이하를 설치해 둔 경우:** 2.1.4부터 서명 키가 바뀌어 덮어쓰기 설치가 되지 않습니다. 기존 앱을 지운 뒤 설치하세요(학습한 목소리도 함께 지워집니다).
+> 기존 앱에 모델이 이미 받아져 있다면 그 앱은 그대로 계속 쓸 수 있습니다.
 
 <details>
 <summary>권한과 쓰는 이유</summary>
@@ -156,6 +174,7 @@ flowchart LR
 - `[웃음]` `[한숨]` 같은 비언어 소리는 실험적입니다.
 - 자동 학습의 향상 폭은 작습니다(위 표). 결과는 자료의 양과 녹음 품질에 가장 크게 좌우됩니다.
 - 개발 중 검증은 PC와 에뮬레이터에서 했고, 실제 기기 테스트는 사용자 보고(삼성 Galaxy, Android 16)로 진행했습니다.
+- v2.1.4의 새 모델팩은 APK의 엔진 코드를 PC에서 실행해 검증했습니다. 다시 서명한 APK를 실제 휴대폰에 설치해 보는 테스트는 아직 하지 못했습니다.
 
 ## 🛡️ 책임 있는 사용
 
@@ -181,11 +200,11 @@ flowchart LR
 It learns a voice from audio or video files and reads scripts of up to 100,000 characters with emotion, saving MP3 files.
 After a one-time model download, nothing leaves the phone: no cloud inference, no paid API, no account.
 
-- Ported the ~0.5B-parameter Chatterbox Multilingual model to ONNX: a 4-bit T3 LM, with CFG, KV cache and an alignment monitor reimplemented in Kotlin. Verified parity with the Python reference (reference tokens 250/250, speaker embeddings cos ≥ 0.996).
+- Ported the ~0.5B-parameter Chatterbox Multilingual model to ONNX: a 4-bit T3 LM, with CFG, KV cache and an alignment monitor reimplemented in Kotlin. Verified parity with the PyTorch reference (speech tokens 186/186, x-vector cos 1.0000, LM logits within 8e-6).
 - Auto-learning searches 99 voice criteria over 5 generations, judged by an independent ECAPA model on held-out sentences (similarity 0.796 → 0.803).
 - Formant-preserving TD-PSOLA, WSOLA, polyphase resampling, and an inline markup language for emotion, pace, pitch, endings, reverb and effects.
 - Cut peak memory during voice learning from 1.9 GB to 0.8 GB, and fixed an Android 15+ foreground-service crash caused by `androidx.core` masking the new `mediaProcessing` type. Both were found through the app's own crash reporting and measurements.
 
-> Note: model downloads are currently offline while the model host is being moved, so a fresh install cannot fetch the models yet. Devices that already have them keep working.
+- After the source repository was lost, rebuilt the release from the APK alone (v2.1.4): decompiled it to recover the model contract, re-exported all 13 ONNX models from the original Hugging Face weights with per-model parity checks against PyTorch, ran the APK's own engine classes on a desktop JVM to verify end to end (Whisper CER 1.1%), then patched the model URL in smali, rehosted the pack and re-signed the APK.
 
 Tech: Kotlin · Jetpack Compose · ONNX Runtime · MediaCodec · foreground services · Python (PyTorch → ONNX export, quantization).
