@@ -1,0 +1,1 @@
+{"text_emb": {"offset": 0, "shape": [2454, 1024], "dtype": "float16"}, "text_pos_emb": {"offset": 5025792, "shape": [2050, 1024], "dtype": "float16"}, "speech_emb": {"offset": 9224192, "shape": [8194, 1024], "dtype": "float16"}, "speech_pos_emb": {"offset": 26005504, "shape": [4100, 1024], "dtype": "float16"}}
